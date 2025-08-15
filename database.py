@@ -1,4 +1,3 @@
-# database.py
 import asyncpg
 import os
 from dotenv import load_dotenv
@@ -7,7 +6,7 @@ load_dotenv()
 
 db_pool = None
 
-# === Foydalanuvchilar jadvali ===
+# === BAZA ULASH VA JADVALLARNI YARATISH ===
 async def init_db():
     global db_pool
     db_pool = await asyncpg.create_pool(
@@ -46,14 +45,23 @@ async def init_db():
             );
         """)
 
-        # Adminlar jadvali
+        # Adminlar
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS admins (
                 user_id BIGINT PRIMARY KEY
             );
         """)
 
-        # Dastlabki adminlar (o'z IDlaringizni qo'shing)
+        # Kanallar (majburiy obuna va asosiy)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS channels (
+                id SERIAL PRIMARY KEY,
+                link TEXT NOT NULL,
+                type TEXT NOT NULL CHECK (type IN ('mandatory', 'main'))
+            );
+        """)
+
+        # Dastlabki adminlar
         default_admins = [7483732504, 5959511392]
         for admin_id in default_admins:
             await conn.execute(
@@ -62,20 +70,25 @@ async def init_db():
             )
 
 
-# === Foydalanuvchi qo'shish ===
+# === FOYDALANUVCHILAR ===
 async def add_user(user_id):
     async with db_pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", user_id
         )
 
-# === Foydalanuvchilar soni ===
 async def get_user_count():
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("SELECT COUNT(*) FROM users")
         return row[0]
 
-# === Kod qo'shish ===
+async def get_all_user_ids():
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT user_id FROM users")
+        return [row["user_id"] for row in rows]
+
+
+# === ANIME KODLARI ===
 async def add_kino_code(code, channel, message_id, post_count, title):
     async with db_pool.acquire() as conn:
         await conn.execute("""
@@ -92,7 +105,6 @@ async def add_kino_code(code, channel, message_id, post_count, title):
             ON CONFLICT DO NOTHING
         """, code)
 
-# === Kodni olish ===
 async def get_kino_by_code(code):
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("""
@@ -102,7 +114,6 @@ async def get_kino_by_code(code):
         """, code)
         return dict(row) if row else None
 
-# === Barcha kodlarni olish ===
 async def get_all_codes():
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
@@ -120,15 +131,14 @@ async def get_all_codes():
             for row in rows
         ]
 
-
-# === Kodni o'chirish ===
 async def delete_kino_code(code):
     async with db_pool.acquire() as conn:
         await conn.execute("DELETE FROM stats WHERE code = $1", code)
         result = await conn.execute("DELETE FROM kino_codes WHERE code = $1", code)
         return result.endswith("1")
 
-# === Statistika yangilash ===
+
+# === STATISTIKA ===
 async def increment_stat(code, field):
     if field not in ("searched", "viewed", "init"):
         return
@@ -143,31 +153,17 @@ async def increment_stat(code, field):
                 UPDATE stats SET {field} = {field} + 1 WHERE code = $1
             """, code)
 
-# === Kod statistikasi olish ===
 async def get_code_stat(code):
     async with db_pool.acquire() as conn:
         return await conn.fetchrow("SELECT searched, viewed FROM stats WHERE code = $1", code)
 
-# === Kod va nomni yangilash ===
-async def update_anime_code(old_code, new_code, new_title):
-    async with db_pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE kino_codes SET code = $1, title = $2 WHERE code = $3
-        """, new_code, new_title, old_code)
 
-# === Barcha foydalanuvchi IDlarini olish ===
-async def get_all_user_ids():
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch("SELECT user_id FROM users")
-        return [row["user_id"] for row in rows]
-
-# === Barcha adminlarni olish ===
+# === ADMINLAR ===
 async def get_all_admins():
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("SELECT user_id FROM admins")
         return {row["user_id"] for row in rows}
 
-# === Yangi admin qo'shish ===
 async def add_admin(user_id: int):
     async with db_pool.acquire() as conn:
         await conn.execute(
@@ -175,7 +171,30 @@ async def add_admin(user_id: int):
             user_id
         )
 
-# === Adminni o'chirish ===
 async def remove_admin(user_id: int):
     async with db_pool.acquire() as conn:
         await conn.execute("DELETE FROM admins WHERE user_id = $1", user_id)
+
+
+# === KANALLAR (YANGI QO‘SHILGAN) ===
+async def add_channel(link: str, channel_type: str):
+    """channel_type: 'mandatory' yoki 'main'"""
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO channels (link, type)
+            VALUES ($1, $2)
+        """, link, channel_type)
+
+async def delete_channel(link: str, channel_type: str):
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            DELETE FROM channels
+            WHERE link = $1 AND type = $2
+        """, link, channel_type)
+
+async def get_channels(channel_type: str):
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT link FROM channels WHERE type = $1
+        """, channel_type)
+        return [row["link"] for row in rows]
