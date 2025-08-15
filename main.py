@@ -33,8 +33,13 @@ keep_alive()
 
 API_TOKEN = os.getenv("API_TOKEN")
 CHANNELS = os.getenv("CHANNEL_USERNAMES").split(",")
-MAIN_CHANNELS = os.getenv("MAIN_CHANNELS").split(",")
-BOT_USERNAME = os.getenv("BOT_USERNAME")
+
+async def load_channels_from_db():
+    global CHANNELS, MAIN_CHANNELS
+    CHANNELS = await get_channels("mandatory")
+    MAIN_CHANNELS = await get_channels("main")
+
+asyncio.run(load_channels_from_db())
 
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
