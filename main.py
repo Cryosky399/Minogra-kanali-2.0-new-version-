@@ -298,86 +298,131 @@ async def add_users_process(message: types.Message, state: FSMContext):
 
     await message.answer(f"✅ Qo‘shildi: {added} ta\n❌ Xato: {errors} ta")
 
-# === Kanallar menyusi ===
-def channels_menu():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton("➕ Kanal qo‘shish", callback_data="add_channel"),
-        InlineKeyboardButton("➖ Kanal o‘chirish", callback_data="delete_channel"),
-        InlineKeyboardButton("📜 Ro‘yxat", callback_data="list_channels"),
-        InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_back")
-    )
-    return kb
-
+# === Kanallar tugmasi ===
 @dp.message_handler(text="📢 Kanallar")
 async def show_channels_menu(message: types.Message):
-    if message.from_user.id not in ADMINS:
-        return await message.answer("❌ Siz admin emassiz!")
-    await message.answer("📢 Kanallar bo‘limi:", reply_markup=channels_menu())
-
-# === Callback handler ===
-@dp.callback_query_handler(lambda c: c.data == "manage_channels")
-async def manage_channels(call: CallbackQuery):
     admins = await get_all_admins()
-    if call.from_user.id not in admins:
-        return await call.answer("❌ Siz admin emassiz!", show_alert=True)
+    if message.from_user.id not in admins:
+        return await message.answer("❌ Siz admin emassiz!")
 
-    await call.message.edit_text("📢 Kanallarni boshqarish bo‘limi:", reply_markup=channels_menu())
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("🔹 Majburiy obuna kanallari", callback_data="manage_mandatory"),
+        InlineKeyboardButton("🔸 Asosiy kanallar", callback_data="manage_main"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_back")
+    )
+    await message.answer("📢 Qaysi kanallarni boshqarasiz?", reply_markup=kb)
 
 
-# === Kanal qo‘shish ===
-@dp.callback_query_handler(lambda c: c.data == "add_channel")
-async def add_channel_handler(call: CallbackQuery):
-    await call.message.answer("➕ Kanal havolasini yuboring va turini yozing:\n\n"
-                              "Masalan:\n`https://t.me/example mandatory`\n"
-                              "yoki\n`https://t.me/example main`", parse_mode="Markdown")
+# === Majburiy obuna kanallari menyusi ===
+@dp.callback_query_handler(lambda c: c.data == "manage_mandatory")
+async def manage_mandatory_channels(call: CallbackQuery):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("➕ Qo‘shish", callback_data="add_channel_mandatory"),
+        InlineKeyboardButton("➖ O‘chirish", callback_data="delete_channel_mandatory"),
+        InlineKeyboardButton("📜 Ro‘yxat", callback_data="list_mandatory"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="manage_channels")
+    )
+    await call.message.edit_text("🔹 Majburiy obuna kanallar:", reply_markup=kb)
+
+
+# === Asosiy kanallar menyusi ===
+@dp.callback_query_handler(lambda c: c.data == "manage_main")
+async def manage_main_channels(call: CallbackQuery):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("➕ Qo‘shish", callback_data="add_channel_main"),
+        InlineKeyboardButton("➖ O‘chirish", callback_data="delete_channel_main"),
+        InlineKeyboardButton("📜 Ro‘yxat", callback_data="list_main"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="manage_channels")
+    )
+    await call.message.edit_text("🔸 Asosiy kanallar:", reply_markup=kb)
+
+
+# === Orqaga tugmasi uchun ===
+@dp.callback_query_handler(lambda c: c.data == "manage_channels")
+async def back_to_channels(call: CallbackQuery):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("🔹 Majburiy obuna kanallari", callback_data="manage_mandatory"),
+        InlineKeyboardButton("🔸 Asosiy kanallar", callback_data="manage_main"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_back")
+    )
+    await call.message.edit_text("📢 Qaysi kanallarni boshqarasiz?", reply_markup=kb)
+
+# === Majburiy obuna kanallarni boshqarish ===
+@dp.callback_query_handler(lambda c: c.data == "add_channel_mandatory")
+async def add_mandatory_channel(call: CallbackQuery):
+    await call.message.answer("➕ Majburiy kanal havolasini yuboring:")
     await ChannelStates.waiting_for_add.set()
+    # turini state'ga saqlaymiz
+    await dp.current_state(user=call.from_user.id).update_data(ch_type="mandatory")
 
 
-@dp.message_handler(state=ChannelStates.waiting_for_add)
-async def save_channel(message: Message, state):
-    try:
-        link, ch_type = message.text.split()
-        if ch_type not in ["mandatory", "main"]:
-            return await message.answer("❌ Kanal turi faqat `mandatory` yoki `main` bo‘lishi kerak!")
-        await add_channel(link, ch_type)
-        await message.answer(f"✅ Kanal qo‘shildi: {link} ({ch_type})")
-    except ValueError:
-        await message.answer("❌ Formati noto‘g‘ri! Masalan:\n`https://t.me/example mandatory`")
-    await state.finish()
-
-
-# === Kanal o‘chirish ===
-@dp.callback_query_handler(lambda c: c.data == "delete_channel")
-async def delete_channel_handler(call: CallbackQuery):
-    await call.message.answer("➖ O‘chirish uchun kanal havolasini va turini yuboring:\n\n"
-                              "Masalan:\n`https://t.me/example mandatory`", parse_mode="Markdown")
+@dp.callback_query_handler(lambda c: c.data == "delete_channel_mandatory")
+async def delete_mandatory_channel(call: CallbackQuery):
+    await call.message.answer("➖ O‘chirish uchun majburiy kanal havolasini yuboring:")
     await ChannelStates.waiting_for_delete.set()
+    await dp.current_state(user=call.from_user.id).update_data(ch_type="mandatory")
 
 
-@dp.message_handler(state=ChannelStates.waiting_for_delete)
-async def remove_channel(message: Message, state):
-    try:
-        link, ch_type = message.text.split()
-        await delete_channel(link, ch_type)
-        await message.answer(f"✅ Kanal o‘chirildi: {link} ({ch_type})")
-    except ValueError:
-        await message.answer("❌ Formati noto‘g‘ri!")
-    await state.finish()
-
-
-# === Kanallar ro‘yxati ===
-@dp.callback_query_handler(lambda c: c.data == "list_channels")
-async def list_channels_handler(call: CallbackQuery):
-    mandatory = await get_channels("mandatory")
-    main = await get_channels("main")
-
-    text = "📜 *Kanallar ro‘yxati:*\n\n"
-    text += "🔹 *Majburiy obuna kanallar:*\n" + ("\n".join(mandatory) if mandatory else "Yo‘q") + "\n\n"
-    text += "🔸 *Asosiy kanallar:*\n" + ("\n".join(main) if main else "Yo‘q")
-
+@dp.callback_query_handler(lambda c: c.data == "list_mandatory")
+async def list_mandatory_channels(call: CallbackQuery):
+    channels = await get_channels("mandatory")
+    text = "🔹 *Majburiy obuna kanallar:*\n\n"
+    text += "\n".join(channels) if channels else "🚫 Hozircha yo‘q"
     await call.message.answer(text, parse_mode="Markdown")
 
+
+# === Asosiy kanallarni boshqarish ===
+@dp.callback_query_handler(lambda c: c.data == "add_channel_main")
+async def add_main_channel(call: CallbackQuery):
+    await call.message.answer("➕ Asosiy kanal havolasini yuboring:")
+    await ChannelStates.waiting_for_add.set()
+    await dp.current_state(user=call.from_user.id).update_data(ch_type="main")
+
+
+@dp.callback_query_handler(lambda c: c.data == "delete_channel_main")
+async def delete_main_channel(call: CallbackQuery):
+    await call.message.answer("➖ O‘chirish uchun asosiy kanal havolasini yuboring:")
+    await ChannelStates.waiting_for_delete.set()
+    await dp.current_state(user=call.from_user.id).update_data(ch_type="main")
+
+
+@dp.callback_query_handler(lambda c: c.data == "list_main")
+async def list_main_channels(call: CallbackQuery):
+    channels = await get_channels("main")
+    text = "🔸 *Asosiy kanallar:*\n\n"
+    text += "\n".join(channels) if channels else "🚫 Hozircha yo‘q"
+    await call.message.answer(text, parse_mode="Markdown")
+
+
+# === Kanal qo‘shish state ===
+@dp.message_handler(state=ChannelStates.waiting_for_add)
+async def save_channel(message: types.Message, state):
+    data = await state.get_data()
+    ch_type = data.get("ch_type")
+
+    link = message.text.strip()
+    if not link.startswith("http"):
+        return await message.answer("❌ To‘g‘ri kanal havolasini yuboring!")
+
+    await add_channel(link, ch_type)
+    await message.answer(f"✅ Kanal qo‘shildi: {link} ({ch_type})")
+    await state.finish()
+
+
+# === Kanal o‘chirish state ===
+@dp.message_handler(state=ChannelStates.waiting_for_delete)
+async def remove_channel(message: types.Message, state):
+    data = await state.get_data()
+    ch_type = data.get("ch_type")
+
+    link = message.text.strip()
+    await delete_channel(link, ch_type)
+    await message.answer(f"✅ Kanal o‘chirildi: {link} ({ch_type})")
+    await state.finish()
 @dp.message_handler(lambda m: m.text == "📦 Bazani olish")
 async def dump_database_handler(message: types.Message):
     if message.from_user.id not in ADMINS:
