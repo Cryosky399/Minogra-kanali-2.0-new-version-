@@ -137,6 +137,15 @@ async def delete_kino_code(code):
         result = await conn.execute("DELETE FROM kino_codes WHERE code = $1", code)
         return result.endswith("1")
 
+# === Kod va nomni yangilash ===
+async def update_anime_code(old_code, new_code, new_title):
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE kino_codes 
+            SET code = $1, title = $2 
+            WHERE code = $3
+        """, new_code, new_title, old_code)
+
 
 # === STATISTIKA ===
 async def increment_stat(code, field):
