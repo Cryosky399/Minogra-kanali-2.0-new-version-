@@ -1,4 +1,5 @@
 # === IMPORTLAR ===
+import asyncio
 import io
 import os
 from dotenv import load_dotenv
