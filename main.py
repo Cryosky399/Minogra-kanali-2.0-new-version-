@@ -24,9 +24,12 @@ from database import (
     get_code_stat,
     increment_stat,
     get_all_user_ids,
-    update_anime_code
+    update_anime_code,
+    get_channels,        # ✅ qo‘shish kerak
+    add_channel,         # ✅ qo‘shish kerak
+    delete_channel,      # ✅ qo‘shish kerak
+    get_all_admins       # ✅ qo‘shish kerak
 )
-
 
 # === YUKLAMALAR ===
 load_dotenv()
@@ -353,12 +356,10 @@ async def back_to_channels(call: CallbackQuery):
 
 # === Majburiy obuna kanallarni boshqarish ===
 @dp.callback_query_handler(lambda c: c.data == "add_channel_mandatory")
-async def add_mandatory_channel(call: CallbackQuery):
+async def add_mandatory_channel(call: CallbackQuery, state: FSMContext):
     await call.message.answer("➕ Majburiy kanal havolasini yuboring:")
+    await state.update_data(ch_type="mandatory")
     await ChannelStates.waiting_for_add.set()
-    # turini state'ga saqlaymiz
-    await dp.current_state(user=call.from_user.id).update_data(ch_type="mandatory")
-
 
 @dp.callback_query_handler(lambda c: c.data == "delete_channel_mandatory")
 async def delete_mandatory_channel(call: CallbackQuery):
@@ -423,6 +424,8 @@ async def remove_channel(message: types.Message, state):
     await delete_channel(link, ch_type)
     await message.answer(f"✅ Kanal o‘chirildi: {link} ({ch_type})")
     await state.finish()
+
+
 @dp.message_handler(lambda m: m.text == "📦 Bazani olish")
 async def dump_database_handler(message: types.Message):
     if message.from_user.id not in ADMINS:
