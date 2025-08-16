@@ -33,18 +33,24 @@ load_dotenv()
 keep_alive()
 
 API_TOKEN = os.getenv("API_TOKEN")
-CHANNELS = os.getenv("CHANNEL_USERNAMES").split(",")
+BOT_USERNAME = os.getenv("BOT_USERNAME")
 
-async def load_channels_from_db():
-    global CHANNELS, MAIN_CHANNELS
-    CHANNELS = await get_channels("mandatory")
-    MAIN_CHANNELS = await get_channels("main")
-
-asyncio.run(load_channels_from_db())
-
-bot = Bot(token=API_TOKEN)
+bot = Bot(token=API_TOKEN, parse_mode="HTML")
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
+
+# Global o‘zgaruvchilar
+CHANNELS = []
+MAIN_CHANNELS = []
+ADMINS = set()
+
+# === Kanallarni DB dan yuklash ===
+async def load_channels_from_db():
+    global CHANNELS, MAIN_CHANNELS, ADMINS
+    CHANNELS = await get_channels("mandatory")
+    MAIN_CHANNELS = await get_channels("main")
+    ADMINS = await get_all_admins()
+    print("✅ Kanallar va adminlar DB dan yuklandi!")
 
 async def make_subscribe_markup(code):
     keyboard = InlineKeyboardMarkup(row_width=1)
@@ -292,13 +298,7 @@ async def add_users_process(message: types.Message, state: FSMContext):
 
     await message.answer(f"✅ Qo‘shildi: {added} ta\n❌ Xato: {errors} ta")
 
-@dp.message_handler(text="📢 Kanallar")
-async def show_channels_menu(message: types.Message):
-    if message.from_user.id not in ADMINS:
-        return await message.answer("❌ Siz admin emassiz!")
-    await message.answer("📢 Kanallar bo‘limi:", reply_markup=channels_menu())
-
-# === Kanallar boshqaruv menyusi ===
+# === Kanallar menyusi ===
 def channels_menu():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
@@ -308,6 +308,12 @@ def channels_menu():
         InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_back")
     )
     return kb
+
+@dp.message_handler(text="📢 Kanallar")
+async def show_channels_menu(message: types.Message):
+    if message.from_user.id not in ADMINS:
+        return await message.answer("❌ Siz admin emassiz!")
+    await message.answer("📢 Kanallar bo‘limi:", reply_markup=channels_menu())
 
 # === Callback handler ===
 @dp.callback_query_handler(lambda c: c.data == "manage_channels")
