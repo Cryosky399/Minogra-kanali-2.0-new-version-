@@ -93,6 +93,10 @@ class PostStates(StatesGroup):
     waiting_for_title = State()
     waiting_for_link = State()
 
+class ChannelStates(StatesGroup):
+    waiting_for_add = State()
+    waiting_for_delete = State()
+
 # === OBUNA TEKSHIRISH FUNKSIYASI ===
 async def get_unsubscribed_channels(user_id):
     unsubscribed = []
@@ -106,6 +110,27 @@ async def get_unsubscribed_channels(user_id):
             unsubscribed.append(channel)
     return unsubscribed
 
+# === TEKSHIRUV CALLBACK – faqat obuna bo‘lmaganlar uchun ===
+@dp.callback_query_handler(lambda c: c.data.startswith("checksub:"))
+async def check_subscription_callback(call: CallbackQuery):
+    code = call.data.split(":")[1]
+    unsubscribed = await get_unsubscribed_channels(call.from_user.id)
+
+    if unsubscribed:
+        markup = InlineKeyboardMarkup(row_width=1)
+        for ch in unsubscribed:
+            try:
+                channel = await bot.get_chat(ch.strip())
+                invite_link = channel.invite_link or (await channel.export_invite_link())
+                markup.add(InlineKeyboardButton(f"➕ {channel.title}", url=invite_link))
+            except Exception as e:
+                print(f"❗ Kanalni olishda xatolik: {ch} -> {e}")
+        markup.add(InlineKeyboardButton("✅ Yana tekshirish", callback_data=f"checksub:{code}"))
+        await call.message.edit_text("❗ Obuna bo‘lmagan kanal(lar):", reply_markup=markup)
+    else:
+        await call.message.delete()
+        await send_reklama_post(call.from_user.id, code)
+        await increment_stat(code, "searched")
 
 # === OBUNA TEKSHIRISH FUNKSIYASI ===
 async def is_user_subscribed(user_id):
@@ -164,7 +189,7 @@ async def start_handler(message: types.Message):
         kb.add("✏️ Kodni tahrirlash", "📤 Post qilish")
         kb.add("📢 Habar yuborish", "📘 Qo‘llanma")
         kb.add("➕ Admin qo‘shish", "📦 Bazani olish")
-        kb.add("📥 User qo‘shish")
+        kb.add("📥 User qo‘shish", "📢 Kanallar")
         await message.answer("👮‍♂️ Admin panel:", reply_markup=kb)
     else:
         kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -174,27 +199,6 @@ async def start_handler(message: types.Message):
         )
         await message.answer("🎬 Botga xush kelibsiz!\nKod kiriting:", reply_markup=kb)
 
-# === TEKSHIRUV CALLBACK – faqat obuna bo‘lmaganlar uchun ===
-@dp.callback_query_handler(lambda c: c.data.startswith("checksub:"))
-async def check_subscription_callback(call: CallbackQuery):
-    code = call.data.split(":")[1]
-    unsubscribed = await get_unsubscribed_channels(call.from_user.id)
-
-    if unsubscribed:
-        markup = InlineKeyboardMarkup(row_width=1)
-        for ch in unsubscribed:
-            try:
-                channel = await bot.get_chat(ch.strip())
-                invite_link = channel.invite_link or (await channel.export_invite_link())
-                markup.add(InlineKeyboardButton(f"➕ {channel.title}", url=invite_link))
-            except Exception as e:
-                print(f"❗ Kanalni olishda xatolik: {ch} -> {e}")
-        markup.add(InlineKeyboardButton("✅ Yana tekshirish", callback_data=f"checksub:{code}"))
-        await call.message.edit_text("❗ Obuna bo‘lmagan kanal(lar):", reply_markup=markup)
-    else:
-        await call.message.delete()
-        await send_reklama_post(call.from_user.id, code)
-        await increment_stat(code, "searched")
 # === 🎞 Barcha animelar tugmasi
 @dp.message_handler(lambda m: m.text == "🎞 Barcha animelar")
 async def show_all_animes(message: types.Message):
@@ -287,7 +291,85 @@ async def add_users_process(message: types.Message, state: FSMContext):
 
     await message.answer(f"✅ Qo‘shildi: {added} ta\n❌ Xato: {errors} ta")
 
+@dp.message_handler(text="📢 Kanallar")
+async def show_channels_menu(message: types.Message):
+    if message.from_user.id not in ADMINS:
+        return await message.answer("❌ Siz admin emassiz!")
+    await message.answer("📢 Kanallar bo‘limi:", reply_markup=channels_menu())
 
+# === Kanallar boshqaruv menyusi ===
+def channels_menu():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("➕ Kanal qo‘shish", callback_data="add_channel"),
+        InlineKeyboardButton("➖ Kanal o‘chirish", callback_data="delete_channel"),
+        InlineKeyboardButton("📜 Ro‘yxat", callback_data="list_channels"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_back")
+    )
+    return kb
+
+# === Callback handler ===
+@dp.callback_query_handler(lambda c: c.data == "manage_channels")
+async def manage_channels(call: CallbackQuery):
+    admins = await get_all_admins()
+    if call.from_user.id not in admins:
+        return await call.answer("❌ Siz admin emassiz!", show_alert=True)
+
+    await call.message.edit_text("📢 Kanallarni boshqarish bo‘limi:", reply_markup=channels_menu())
+
+
+# === Kanal qo‘shish ===
+@dp.callback_query_handler(lambda c: c.data == "add_channel")
+async def add_channel_handler(call: CallbackQuery):
+    await call.message.answer("➕ Kanal havolasini yuboring va turini yozing:\n\n"
+                              "Masalan:\n`https://t.me/example mandatory`\n"
+                              "yoki\n`https://t.me/example main`", parse_mode="Markdown")
+    await ChannelStates.waiting_for_add.set()
+
+
+@dp.message_handler(state=ChannelStates.waiting_for_add)
+async def save_channel(message: Message, state):
+    try:
+        link, ch_type = message.text.split()
+        if ch_type not in ["mandatory", "main"]:
+            return await message.answer("❌ Kanal turi faqat `mandatory` yoki `main` bo‘lishi kerak!")
+        await add_channel(link, ch_type)
+        await message.answer(f"✅ Kanal qo‘shildi: {link} ({ch_type})")
+    except ValueError:
+        await message.answer("❌ Formati noto‘g‘ri! Masalan:\n`https://t.me/example mandatory`")
+    await state.finish()
+
+
+# === Kanal o‘chirish ===
+@dp.callback_query_handler(lambda c: c.data == "delete_channel")
+async def delete_channel_handler(call: CallbackQuery):
+    await call.message.answer("➖ O‘chirish uchun kanal havolasini va turini yuboring:\n\n"
+                              "Masalan:\n`https://t.me/example mandatory`", parse_mode="Markdown")
+    await ChannelStates.waiting_for_delete.set()
+
+
+@dp.message_handler(state=ChannelStates.waiting_for_delete)
+async def remove_channel(message: Message, state):
+    try:
+        link, ch_type = message.text.split()
+        await delete_channel(link, ch_type)
+        await message.answer(f"✅ Kanal o‘chirildi: {link} ({ch_type})")
+    except ValueError:
+        await message.answer("❌ Formati noto‘g‘ri!")
+    await state.finish()
+
+
+# === Kanallar ro‘yxati ===
+@dp.callback_query_handler(lambda c: c.data == "list_channels")
+async def list_channels_handler(call: CallbackQuery):
+    mandatory = await get_channels("mandatory")
+    main = await get_channels("main")
+
+    text = "📜 *Kanallar ro‘yxati:*\n\n"
+    text += "🔹 *Majburiy obuna kanallar:*\n" + ("\n".join(mandatory) if mandatory else "Yo‘q") + "\n\n"
+    text += "🔸 *Asosiy kanallar:*\n" + ("\n".join(main) if main else "Yo‘q")
+
+    await call.message.answer(text, parse_mode="Markdown")
 
 @dp.message_handler(lambda m: m.text == "📦 Bazani olish")
 async def dump_database_handler(message: types.Message):
